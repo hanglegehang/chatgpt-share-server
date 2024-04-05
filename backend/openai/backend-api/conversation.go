@@ -3,6 +3,7 @@ package backendapi
 import (
 	"backend/config"
 	"backend/modules/chatgpt/model"
+	"backend/modules/chatgpt/service"
 	"backend/utility"
 	"bytes"
 	"io"
@@ -143,7 +144,8 @@ func Conversation(r *ghttp.Request) {
 	ctx := r.Context()
 	// 获取header中的token
 	usertoken := r.Session.MustGet("usertoken").String()
-	if usertoken == "" {
+	userInfo := service.QueryUserByToken(ctx, usertoken)
+	if usertoken == "" || userInfo == nil || userInfo.ExpireTime.Before(time.Now()) {
 		r.Response.Status = 401
 		r.Response.WriteJson(g.Map{
 			"detail": "Could not parse your authentication token. Please try signing in again.",
