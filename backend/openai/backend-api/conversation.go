@@ -214,7 +214,6 @@ func Conversation(r *ghttp.Request) {
 		})
 		return
 	}
-	utility.GetStatsInstance(carid).RecordCall()
 	ChatGPTAccountID := r.Header.Get("ChatGPT-Account-ID")
 
 	// 如果配置了限制url
@@ -280,7 +279,26 @@ func Conversation(r *ghttp.Request) {
 			r.Response.Status = 429
 			r.Response.Write(body)
 		}
-
+		//响应成功才计数
+		if proxyResponse.StatusCode == 200 {
+			utility.GetStatsInstance(carid).RecordCall()
+			// 如果配置了对话回调url
+			if config.ConversationNotifyUrl != "" {
+				go func() {
+					res, _ := g.Client().SetHeaderMap(g.MapStrStr{
+						"Authorization":      "Bearer " + usertoken,
+						"ChatGPT-Account-ID": ChatGPTAccountID,
+						"Content-Type":       "application/json",
+						"Cookie":             r.Header.Get("Cookie"),
+						"Referer":            r.Header.Get("Referer"),
+						"User-Agent":         r.Header.Get("User-Agent"),
+						"Carid":              carid,
+						"Model":              body.Get("model").String(),
+					}).Post(ctx, config.ConversationNotifyUrl, nil)
+					defer res.Close()
+				}()
+			}
+		}
 		proxyResponse.Header.Del("Set-Cookie")
 
 		return nil
@@ -295,16 +313,17 @@ func Conversation(r *ghttp.Request) {
 	// 检查跨车验证是否相符
 	requirementsCarid := r.Session.MustGet("requirements-carid").String()
 	if requirementsCarid != carid {
-		// 移除OpenAI-Sentinel-Chat-Requirements-Token 改由接入点补全
-		g.Log().Debug(ctx, "requirements-carid:", requirementsCarid, "carid:", carid, "not match,remove OpenAI-Sentinel-Chat-Requirements-Token")
-		newreq.Header.Del("OpenAI-Sentinel-Chat-Requirements-Token")
-		r.Response.Status = 418
-		// 提示需要验证
-		r.Response.WriteJson(g.Map{
-			"code":   "challenge_required",
-			"detail": "跨车会话要求验证,请点击重新生成完成验证 \n Cross-car conversation requires verification, please click to regenerate to complete the verification",
-		})
-		return
+		// // 移除OpenAI-Sentinel-Chat-Requirements-Token 改由接入点补全
+		// g.Log().Debug(ctx, "requirements-carid:", requirementsCarid, "carid:", carid, "not match,remove OpenAI-Sentinel-Chat-Requirements-Token")
+		// newreq.Header.Del("OpenAI-Sentinel-Chat-Requirements-Token")
+		// r.Response.Status = 418
+		// // 提示需要验证
+		// r.Response.WriteJson(g.Map{
+		// 	"code":   "challenge_required",
+		// 	"detail": "跨车会话要求验证,请点击重新生成完成验证 \n Cross-car conversation requires verification, please click to regenerate to complete the verification",
+		// })
+		// return
+		newreq.Header.Del("OpenAISentinelProofToken")
 	}
 	proxy.ServeHTTP(r.Response.Writer.RawWriter(), newreq)
 }
